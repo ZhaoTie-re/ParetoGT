@@ -1,33 +1,103 @@
-# wgs_gt_qc_calibration
+# ParetoGT
 
-Calibrates genotype-level QC thresholds for whole-genome sequencing (WGS) against array genotypes of the same samples.
+**Pareto-optimal genotype QC thresholds for whole-genome sequencing, calibrated against array genotypes.**
 
-The tool scans 3,240 combinations of:
+ParetoGT chooses genotype-level QC thresholds for WGS calls:
 - read depth (DP);
 - genotype quality (GQ);
 - the heterozygote allele-fraction window [LAF, HAF].
 
-For each combination it masks the WGS calls that fail and measures, against the array genotypes:
-- concordance;
-- miss rate;
+It does this by measuring each candidate setting against array genotypes of the same samples. Every combination of thresholds is scored on:
+- genotype concordance;
+- genotype miss rate;
 - false positive and false negative rates.
 
-It does this in all samples and per sequencing-depth group. A setting is then chosen on the Pareto front of concordance against miss rate, at the knee point found by a weighted Kneedle.
+Scores are computed in all samples and per sequencing-depth group. The setting is then chosen on the Pareto front of concordance against miss rate, at the knee point found by a weighted Kneedle.
 
-**Status: under development (0.1.0).** The pipeline and the analysis notebooks are those of the first application, now in their own repository (see [CHANGELOG.md](CHANGELOG.md)). Interfaces and file layout may still change.
+Version 0.2.0, under development ([CHANGELOG](CHANGELOG.md)).
+
+![Pareto front and knee points](results/figures/pareto_knee.png)
 
 ## How it works
 
-| Step | What it does | Where |
-|---|---|---|
-| 1 | Shared samples and variants of the WGS and array VCFs; GT, DP, GQ and AF matrices per chromosome | `FormatMatrixPrepare`, `scripts/extract_vcf_format.py` |
-| 2 | For each combination: WGS genotypes failing DP or GQ, and heterozygotes outside [LAF, HAF], set to missing; the confusion matrix against the array, VMISS and SMISS | `ConcordanceVmissCalculator`, `scripts/evaluate_genotype_concordance_and_vmiss.py` |
-| 3 | Metrics per chromosome | `ConcordanceVmissSummary`, `scripts/genotype_concordance_vmiss_summary.py` |
-| 4–5 | Genome-wide merge and metrics, per combination | `MergeConcordanceVmiss`, `MergeConcordanceVmissSummary`, `scripts/merge_concordance_results.py` |
-| 6 | One table per sample group (ALL, 15X, 30X) | `scripts/export_summary_tables.py` → `results/summary/` |
-| 7 | Pareto front and weighted knee point; threshold scans; depth-group comparison | `notebooks/01`–`04` |
+```mermaid
+flowchart LR
+    V["WGS VCFs + array VCF"] --> P["PREPARE_MATRICES<br/>per chromosome"]
+    M[("matrices of an<br/>earlier run")] -.->|--matrixDir| E
+    P --> E["EVALUATE<br/>chromosome × batch of settings"]
+    E --> S["MERGE_AND_SUMMARIZE<br/>genome-wide, per setting"]
+    S --> X["EXPORT_TABLES<br/>one table per group"]
+    X --> K["SELECT_SETTING<br/>Pareto front, weighted Kneedle"]
+    X --> F["FIGURES"]
+    K --> F
+```
 
-The metric definitions, the grid and the selection rule are in [docs/METHODS.md](docs/METHODS.md). The slides of the first application are in [docs/qc.gt_tuning.v6.rev1.pptx](docs/qc.gt_tuning.v6.rev1.pptx).
+1. **Compare.** On the variants and samples shared by both platforms, each setting sets the failing WGS calls to missing:
+   - DP below the threshold;
+   - GQ below the threshold;
+   - a heterozygous call whose allele fraction falls outside [LAF, HAF].
+
+   The remaining calls are cross-tabulated against the array genotypes.
+2. **Score.** Each confusion matrix gives concordance, miss rate, false positive and false negative rates, and the per-variant and per-sample missingness. The scores are computed in all samples (ALL) and separately at 15x and 30x.
+3. **Choose.** No setting maximizes concordance and minimizes the miss rate at once. ParetoGT therefore:
+   - keeps the settings on the Pareto front;
+   - finds the front's knee point with Kneedle, weighted by W, the weight on concordance relative to the weight on miss rate.
+
+   A setting that stays the knee across an interval of W is preferred.
+
+Definitions and the selection rule: [docs/METHODS.md](docs/METHODS.md).
+
+## Quick start
+
+```bash
+git clone <this repository> ParetoGT && cd ParetoGT
+
+# 1. Synthetic test (two chromosomes, 84 settings, local; a few minutes)
+nextflow run main.nf -profile test
+
+# 2. A full run on SLURM: one WGS VCF per chromosome, plus the array VCF
+sbatch run_nextflow.sh --wgsDir /path/to/wgs --trueVcf /path/to/array.vcf.gz --sampleInfo /path/to/depth.csv
+./monitor_status.sh
+
+# 3. Another threshold grid on matrices already prepared (skips the VCF extraction)
+sbatch run_nextflow.sh --matrixDir results/01.prepare_format_matrix --dp 6-12 --gq 20,30
+```
+
+### Inputs
+
+| Input | Parameter | Format |
+|---|---|---|
+| WGS calls | `--wgsDir`, `--callVcfSuffix` | one bgzipped, indexed VCF per chromosome, `<chr><suffix>`. FORMAT GT, DP, GQ and AF (alternate allele fraction). Variant IDs `chr:pos:ref:alt`. |
+| Array genotypes (the truth) | `--trueVcf` | one bgzipped, indexed VCF, FORMAT GT, with the same variant IDs |
+| Depth groups | `--sampleInfo` | CSV `ID,Target_DP`, with values `15x` or `30x` ([info/README.md](info/README.md)) |
+| or: prepared matrices | `--matrixDir` | `01.prepare_format_matrix/` of an earlier run |
+
+### Parameters
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `--chromosomes` | `1-22` | chromosomes, as numbers or names |
+| `--dp`, `--gq` | `1-30`, `10,20,30` | DP and GQ thresholds; a range is written `a-b` |
+| `--laf`, `--haf` | `0.0,…,0.3`, `1.0,…,0.7` | bounds of the heterozygote allele-fraction window |
+| `--weights` | `1/7,…,1,…,6` | weight ratios W scanned for the knee |
+| `--adoptWeight` | `1/4` | the knee at this W is marked as adopted in the figures |
+| `--combosPerTask` | `36` | settings evaluated per task; the matrices are read once per task |
+| `--chromSummaries` | `true` | also write per-chromosome metrics (`03`) |
+| `--publishMode` | `symlink` | how `01`–`05` are published; the tables and figures are always copied |
+| `--outDir` | `results` | output folder |
+| `--python`, `--bcftools` | site paths | Python 3 with the packages below, and bcftools |
+
+SLURM resources are set per step in [nextflow.config](nextflow.config), through `--rsc` cluster options. `-profile local` runs every task on the current host.
+
+### Outputs
+
+| Folder | Content |
+|---|---|
+| `results/summary/` | `merged_summary_{all,15x,30x}.csv`: every setting with its metrics, one table per group |
+| `results/selection/` | `pareto_front_{all,15x,30x}.tsv`; `knee_by_weight.tsv`, the knee of each group and W with its metrics in every group |
+| `results/figures/` | the four figures shown here (PNG, PDF) |
+| `results/01`–`05` | per-chromosome matrices; per-chromosome and genome-wide results of every setting (about 0.5 TB for the full grid) |
+| `results/pipeline_info/` | trace, report, timeline |
 
 ## First application
 
@@ -35,7 +105,9 @@ The metric definitions, the grid and the selection rule are in [docs/METHODS.md]
 - 1,750 samples with both WGS and array genotypes, sequenced at 15x or 30x;
 - 382,521 shared autosomal variants.
 
-**Knee point by weight ratio.** W is the weight on concordance relative to the weight on miss rate. The metrics are for all samples.
+**Grid.** 3,240 settings: DP 1–30 × GQ 10/20/30 × LAF 0–0.3 × HAF 0.7–1.0.
+
+**Knee point by weight ratio W.** The metrics are for all samples ([`results/selection/knee_by_weight.tsv`](results/selection/knee_by_weight.tsv)).
 
 | W | DP | GQ | LAF | HAF | Concordance | Miss rate |
 |---|---:|---:|---:|---:|---:|---:|
@@ -45,7 +117,7 @@ The metric definitions, the grid and the selection rule are in [docs/METHODS.md]
 | 1 | 9 | 20 | 0.25 | 0.75 | 99.979% | 5.551% |
 | 2 – 6 | 11 | 30 | 0.25 | 0.75 | 99.984% | 13.232% |
 
-**Adopted setting: DP ≥ 8, GQ ≥ 20, heterozygote AF in [0.20, 0.80].** The same setting is the knee for every W from 1/7 to 1/4. At this setting:
+**Adopted setting: DP ≥ 8, GQ ≥ 20, heterozygote AF in [0.20, 0.80].** It is the knee for every W from 1/7 to 1/4. Beyond that interval, small gains in concordance cost several points of miss rate.
 
 | Group | Concordance | Miss rate | False positive rate | False negative rate |
 |---|---:|---:|---:|---:|
@@ -53,73 +125,58 @@ The metric definitions, the grid and the selection rule are in [docs/METHODS.md]
 | 15x | 99.977% | 3.842% | 0.013% | 0.010% |
 | 30x | 99.969% | 2.095% | 0.017% | 0.015% |
 
-The 15x and 30x samples agree on accuracy; they differ in missingness.
+**Threshold scan.** Concordance rises with the DP and GQ thresholds. The miss rate stays low up to DP ≈ 8 and then climbs steeply.
 
-All the metrics of every combination are in [`results/summary/`](results/summary/), one table per group.
+![Threshold scan](results/figures/threshold_scan.png)
+
+**Allele-fraction window.** A tighter window removes false heterozygous calls, mostly at 15x. It also costs true heterozygotes, so the window cannot simply be made as narrow as possible.
+
+![Allele-fraction window](results/figures/af_window.png)
+
+**Depth groups.** At the adopted setting, 15x and 30x samples agree on accuracy. Missingness remains the difference between them.
+
+![Depth groups](results/figures/depth_groups.png)
+
+The slides of this application: [docs/qc.gt_tuning.v6.rev1.pptx](docs/qc.gt_tuning.v6.rev1.pptx).
 
 ## Requirements
 
-- Nextflow 22.10.x. The pipeline is written in DSL1, which later releases no longer support. Here it is the conda environment `dsl1`.
-- A SLURM cluster. Resources are set as `--rsc` cluster options in `nextflow.config`, and the partition in the `.nf`.
-- bcftools (tested with 1.21).
-- Python 3 with the packages in [requirements.txt](requirements.txt). The pipeline steps need pandas and numpy; the notebooks need the rest.
-- For the notebooks: `kneed` 0.8.5 with the weighted-Kneedle patch:
+- Nextflow 25.04 or later (DSL2). Tested with 26.04.4.
+- bcftools. Tested with 1.21.
+- Python 3 with the packages in [requirements.txt](requirements.txt): pandas, numpy, matplotlib, scipy, kneed. The weighted Kneedle is built into `scripts/select_setting.py` and runs on the released `kneed`.
+- For the exploratory notebooks only: seaborn, tqdm, and `kneed` with [patches/kneed-0.8.5-weighted.patch](patches/kneed-0.8.5-weighted.patch).
 
-  ```bash
-  pip install kneed==0.8.5
-  SITE=$(python -c 'import kneed, os; print(os.path.dirname(os.path.dirname(kneed.__file__)))')
-  patch -p1 -d "$SITE" < patches/kneed-0.8.5-weighted.patch
-  ```
+## Testing
 
-## Run
+`-profile test` runs the whole pipeline on synthetic data in [tests/](tests/README.md): 40 simulated samples, two chromosomes and 84 settings.
 
-```bash
-sbatch run_nextflow.sh          # resumes the last run; `sbatch run_nextflow.sh clean` starts afresh
-./monitor_status.sh -l          # progress, by process, from trace.txt and the launcher log
-```
+Two checks support the rewrite in DSL2 and the faster evaluation:
+- **Synthetic data.** For all 84 settings, the evaluation tables equal those of the original script of version 0.1.0.
+- **First application (chr22, from its prepared matrices).** The tables equal those of the original run.
 
-**Inputs.** Set them on the command line or in the `.nf`:
+Both comparisons were made with [tests/compare_pickles.py](tests/compare_pickles.py), which checks values, data types and row and column order.
 
-| Parameter | Meaning |
-|---|---|
-| `--wgsDir`, `--callVcfSuffix` | WGS VCFs, one per chromosome: `<chr><suffix>` |
-| `--trueVcf` | array VCF |
-| `--sampleInfo` | sample sheet with the depth group of each sample ([info/README.md](info/README.md)) |
-
-**Outputs.** They go to `results/01`–`05`, about 0.5 TB per run for the full grid. Then:
-
-```bash
-python3 scripts/export_summary_tables.py \
-    --summary_dir results/05.merge_concordance_vmiss_summary --out_dir results/summary
-```
-
-and run the notebooks from `notebooks/`.
-
-## Layout
+## Repository layout
 
 | Path | Content |
 |---|---|
-| `wgs_gt_qc_calibration.nf`, `nextflow.config` | the pipeline (DSL1) and its SLURM resources |
-| `run_nextflow.sh`, `monitor_status.sh` | launcher (SLURM job) and progress monitor |
-| `scripts/` | the pipeline steps and the summary export |
-| `notebooks/` | `01_threshold_scans`, `02_pareto_knee`, `03_cross_platform`, `04_cohort_weighting_check` |
-| `patches/` | the weighted Kneedle for `kneed` |
-| `docs/` | methods and slides |
-| `info/` | the sample sheet (not under version control) |
-| `results/summary/` | the metrics of every combination, per sample group |
+| `main.nf`, `nextflow.config` | the pipeline (DSL2), its parameters, resources and profiles |
+| `run_nextflow.sh`, `monitor_status.sh` | SLURM launcher of the Nextflow head, and a progress monitor |
+| `scripts/` | the steps: VCF extraction, evaluation, merging, metrics, export, selection, figures |
+| `notebooks/` | exploratory notebooks of the first application |
+| `tests/` | synthetic test data, its generator, and the result comparison |
+| `docs/` | methods, and the slides of the first application |
+| `results/` | the tables, selection and figures of the first application |
+| `patches/` | the weighted Kneedle as a patch to `kneed` (for the notebooks) |
 
-Two kinds of data are kept locally and are not under version control:
-- per-sample data: the sample sheet, and the full results of the adopted and other knee settings (`results/selected_settings/`);
-- run records (`results/_run_info/`).
+The sample sheet and per-sample results are not under version control.
 
 ## Roadmap
 
-- Port the pipeline to DSL2.
-- Make the threshold grid a parameter.
-- Move the Pareto and weighted-Kneedle selection from the notebooks into a script that writes the chosen setting and its metrics.
-- Keep the per-chromosome intermediates smaller.
-- Allow sample groups other than 15x and 30x.
+- Sample groups other than 15x and 30x.
+- Smaller intermediate files (`01`–`04`).
+- A container image with the Python environment and bcftools.
 
 ## Author
 
-Zhao Tie ([@ZhaoTie-re](https://github.com/ZhaoTie-re)).
+Zhao Tie ([@ZhaoTie-re](https://github.com/ZhaoTie-re)), Graduate School of Medicine, Kyoto University.

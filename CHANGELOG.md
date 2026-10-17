@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.2.0 (2026-10-18)
+
+Renamed **ParetoGT** (repository and folder `ParetoGT`, formerly `wgs_gt_qc_calibration`).
+
+**Pipeline**
+- Rewritten in Nextflow DSL2 (`main.nf`, Nextflow 25.04 or later), lint-clean in strict syntax.
+- The threshold grid, chromosomes and batch sizes are parameters.
+- Default resources for SLURM (`--rsc`), with `local` and `test` profiles.
+
+**Faster evaluation, same results**
+- Each `EVALUATE` task reads its chromosome's matrices once and evaluates a batch of settings (`--combosPerTask`, default 36). The first version re-read the matrices for every block of 1,000 variants and ran one setting per task.
+- The per-chromosome metrics are computed in the same task.
+- Merging and the genome-wide metrics share one task per batch.
+- Task count for the full grid: 2,095, down from 149,062.
+- The metric code is unchanged. A failing block now stops the task; it used to be dropped with an empty result.
+
+**New**
+- `--matrixDir`: start from the matrices of an earlier run, without reading the VCFs again.
+- `SELECT_SETTING` (`scripts/select_setting.py`): the Pareto front and weighted Kneedle of `notebooks/02`, as a step. The weighting runs on the released `kneed`, and gives the same knees as the patched one.
+- `FIGURES` (`scripts/plot_figures.py`): threshold scan, Pareto front with knee points, allele-fraction window, depth groups.
+- `EXPORT_TABLES` reads the settings from the file names, so any grid works.
+
+**Inputs**
+- The WGS and array VCFs are now required parameters, with no defaults; the VCFs of the first application no longer exist at their old paths.
+
+**Tests**
+- `tests/`: synthetic data and its generator, `-profile test`, and `compare_pickles.py`.
+- Checks:
+  - the evaluation tables of 84 synthetic settings equal those of version 0.1.0's script;
+  - those of chromosome 22 of the first application (16 settings, from its matrices) equal the original run's.
+
+**Docs**
+- README with the figures of the first application; methods updated.
+- `results/selection/` and `results/figures/` added.
+
 ## 0.1.0 (2026-10-18)
 
 First version in its own repository, imported from the analysis folder `cteph_agp3k.v5/tuning.concordance.v5`. Nothing was re-run.

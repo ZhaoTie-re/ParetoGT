@@ -6,57 +6,36 @@
 #SBATCH -e nextflow_head.err
 
 # ==============================================================================
-# Nextflow Pipeline Launcher
-# ==============================================================================
-# Author:
-#   ZHAO TIE
-#
-# Description:
-#   Sets up the environment and submits the Nextflow pipeline.
-#   Includes memory configuration and run artifact cleanup.
+# ParetoGT launcher: runs the Nextflow head as a SLURM job; the tasks are SLURM jobs of their own.
 #
 # Usage:
-#   sbatch run_nextflow.sh [script.nf] [clean]
-#   - script.nf: Optional Nextflow script (default: wgs_gt_qc_calibration.nf)
-#   - 'clean'  : Run without -resume (start fresh).
-#   Order of arguments does not matter.
+#   sbatch run_nextflow.sh [clean] [Nextflow options ...]
+#   - clean: start afresh (without -resume)
+#   - anything else is passed to Nextflow, e.g.
+#       sbatch run_nextflow.sh --wgsDir <dir> --trueVcf <vcf>
+#       sbatch run_nextflow.sh --matrixDir results/01.prepare_format_matrix --dp 6-12
+# Progress: ./monitor_status.sh (reads results/pipeline_info/trace.txt and nextflow_head.log).
+# Author: Zhao Tie
 # ==============================================================================
 
-# Activate environment
-source activate dsl1
+# Nextflow 25.04 or later (DSL2). The environment's bin goes first on PATH: at this site an activated
+# conda environment is not reliably first.
+export PATH=/home/b/b37974/anaconda3/envs/dsl2/bin:$PATH
 
-# Increase Nextflow Java Heap memory to prevent OOM when scheduling many tasks
-# Physical memory 8G, leave 1G for system, max Java Heap set to 7G
+# Java heap of the head process: 8G job, 7G heap (many tasks to schedule)
 export NXF_OPTS='-Xms2g -Xmx7g'
 
-# Default configurations
-NF_SCRIPT="wgs_gt_qc_calibration.nf"
 RESUME_FLAG="-resume"
-
-# Parse arguments
+NF_ARGS=()
 for arg in "$@"; do
-    if [[ "$arg" == *.nf ]]; then
-        NF_SCRIPT="$arg"
-    elif [[ "$arg" == "clean" ]]; then
-        echo "Starting fresh run (cleaning cache)..."
+    if [[ "$arg" == "clean" ]]; then
+        echo "Starting afresh (no -resume)..."
         RESUME_FLAG=""
+    else
+        NF_ARGS+=("$arg")
     fi
 done
+[ -n "$RESUME_FLAG" ] && echo "Resuming from the last run..."
 
-if [ -n "$RESUME_FLAG" ]; then
-    echo "Resuming from last checkpoint..."
-fi
-
-# Detect and remove existing trace.txt and report.html to prevent conflicts
-if [ -f trace.txt ]; then
-    rm trace.txt
-fi
-if [ -f report.html ]; then
-    rm report.html
-fi
-
-# Run Nextflow
-# -resume: Resume interrupted tasks (default behavior unless 'clean' is specified)
-# -with-trace: Generate real-time task tracing file 'trace.txt'
-# -with-report: Generate execution report 'report.html'
-nextflow run $NF_SCRIPT $RESUME_FLAG -with-trace trace.txt -with-report report.html
+# trace, report and timeline: results/pipeline_info/ (nextflow.config)
+nextflow run main.nf $RESUME_FLAG "${NF_ARGS[@]}"

@@ -2,25 +2,30 @@
 work/
 .nextflow/
 .nextflow.log*
-trace.txt
-report.html
 nextflow_head.log
 nextflow_head.err
 
-# Pipeline outputs: symlinks into work/, about 0.5 TB per run
+# Pipeline outputs: symlinks into work/, about 0.5 TB per run; run records
 results/0*/
+results/pipeline_info/
+results/_run_info/
 
 # Per-sample data: never under version control
 info/*.csv
 info/*.tsv
 results/selected_settings/
 
-# Run records, kept locally
-results/_run_info/
+# Test runs (the synthetic input data in tests/data are tracked)
+tests/work/
+tests/results/
+tests/runs/*/work/
+tests/runs/*/results/
+tests/runs/*/*.log
 
 # Notebook, Python and editor leftovers
 .ipynb_checkpoints/
 __pycache__/
 *.pyc
+.mpl/
 .vscode/
 .DS_Store

@@ -4,7 +4,7 @@
 
 The array genotypes of the same individuals serve as the truth. Before the comparison they pass array QC and a frequency filter against a large reference panel of the same population, so that the remaining array sites are high-confidence anchors.
 
-The comparison set is the samples and variants present in both the WGS calls and the array genotypes (`FormatMatrixPrepare`, `scripts/extract_vcf_format.py`):
+The comparison set is the samples and variants present in both the WGS calls and the array genotypes (`PREPARE_MATRICES`, `scripts/extract_vcf_format.py`):
 - the shared samples;
 - the shared variant IDs (`chr:pos:ref:alt`), one chromosome at a time.
 
@@ -21,7 +21,7 @@ Each combination of four thresholds defines one mask:
 | LAF: lower bound of the heterozygote allele fraction | 0.0, 0.1, 0.15, 0.2, 0.25, 0.3 |
 | HAF: upper bound of the heterozygote allele fraction | 1.0, 0.9, 0.85, 0.8, 0.75, 0.7 |
 
-That makes 30 × 3 × 6 × 6 = 3,240 combinations. The grid is set in `wgs_gt_qc_calibration.nf`.
+That makes 30 × 3 × 6 × 6 = 3,240 combinations, the default grid (`--dp`, `--gq`, `--laf`, `--haf`).
 
 A WGS genotype is set to missing when any of the following holds (`scripts/evaluate_genotype_concordance_and_vmiss.py`):
 - DP < DP threshold;
@@ -51,11 +51,11 @@ Sites where the array genotype is missing are left out. The metrics follow Kishi
 
 **Sample groups.** Each metric is computed in all samples (ALL) and separately by sequencing depth (15X, 30X). The depth groups come from the sample sheet (`info/`, column `Target_DP`).
 
-**Merging.** The per-chromosome counts of one combination are added up (`scripts/merge_concordance_results.py`), and the genome-wide metrics are computed from the sums (`MergeConcordanceVmissSummary`). `scripts/export_summary_tables.py` collects the genome-wide metrics of all combinations into one table per sample group.
+**Merging.** The per-chromosome counts of one combination are added up (`scripts/merge_concordance_results.py`), and the genome-wide metrics are computed from the sums (`MERGE_AND_SUMMARIZE`). `EXPORT_TABLES` (`scripts/export_summary_tables.py`) collects the genome-wide metrics of all combinations into one table per sample group.
 
 ## 4. Choosing a setting
 
-Stricter thresholds raise concordance and lower the error rates, but they also set more genotypes to missing. No single combination is best on both counts, so the choice is a trade-off between two objectives: maximize concordance and minimize the miss rate (`notebooks/02_pareto_knee.ipynb`).
+Stricter thresholds raise concordance and lower the error rates, but they also set more genotypes to missing. No single combination is best on both counts, so the choice is a trade-off between two objectives: maximize concordance and minimize the miss rate (`SELECT_SETTING`, `scripts/select_setting.py`; first written in `notebooks/02_pareto_knee.ipynb`).
 
 **Pareto front.** A combination is on the front when no other combination has both:
 - a concordance at least as high and a miss rate at least as low;
@@ -75,9 +75,13 @@ Only combinations on the front are considered.
 - W > 1 values concordance more, and the knee moves to stricter settings.
 - W < 1 values retention more, and the knee moves to looser settings.
 
-The weights are not part of the released `kneed`. They are added by `patches/kneed-0.8.5-weighted.patch` (three changed lines).
+The weights are not part of the released `kneed`.
+- `scripts/select_setting.py` applies them in a subclass of `KneeLocator`. It recomputes the difference curve, its extrema and thresholds with the weights before the knee search, and runs on the released `kneed`.
+- The notebooks use the same change as a patch, `patches/kneed-0.8.5-weighted.patch` (three changed lines).
 
-The notebooks scan W from 1/7 to 6. A setting chosen for a whole interval of W is preferred, because it does not depend on one weighting.
+The two give the same knee for every group and weight of the first application.
+
+The default scan is W from 1/7 to 6. A setting chosen for a whole interval of W is preferred, because it does not depend on one weighting. The figures mark the knee at `--adoptWeight` (default 1/4, the choice of the first application).
 
 **Checks.**
 - `notebooks/03_cross_platform.ipynb` compares the metrics of the knee settings between depth groups.
@@ -87,3 +91,18 @@ The notebooks scan W from 1/7 to 6. A setting chosen for a whole interval of W i
 
 - Kishikawa, T., Momozawa, Y., Ozeki, T., Mushiroda, T., Inohara, H., Kamatani, Y., Kubo, M., & Okada, Y. (2019). Empirical evaluation of variant calling accuracy using ultra-deep whole-genome sequencing data. *Scientific Reports, 9*(1), 1784.
 - Satopää, V., Albrecht, J., Irwin, D., & Raghavan, B. (2011). Finding a "Kneedle" in a haystack: Detecting knee points in system behavior. *31st International Conference on Distributed Computing Systems Workshops*, 166–171.
+
+## 5. Computation
+
+The pipeline is written in Nextflow DSL2 (`main.nf`). The steps scale as follows:
+
+| Step | Unit of work | Tasks, default grid |
+|---|---|---:|
+| `PREPARE_MATRICES` | one chromosome | 22 |
+| `EVALUATE` | one chromosome × a batch of `--combosPerTask` settings (default 36: every allele-fraction window of one DP and GQ) | 1,980 |
+| `MERGE_AND_SUMMARIZE` | one batch | 90 |
+| `EXPORT_TABLES`, `SELECT_SETTING`, `FIGURES` | the whole grid | 3 |
+
+`EVALUATE` reads the five matrices of its chromosome once and evaluates its settings in turn. Within a setting, the variants are processed in blocks of `--batchSize` (1,000), in parallel, as in the first version, which re-read the matrices for every block and ran one setting per task (71,280 tasks for the default grid).
+
+The tables of a setting are identical in both versions; `tests/compare_pickles.py` checks this. The metric code itself is unchanged.

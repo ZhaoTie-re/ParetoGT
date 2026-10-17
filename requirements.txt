@@ -1,9 +1,11 @@
-# Python packages of the scripts (pipeline) and the notebooks. Tested versions.
+# Python packages of the pipeline (--python). Tested versions.
 pandas==2.2.2
 numpy==1.26.4
-# notebooks only
 matplotlib==3.8.4
-seaborn==0.11.0
 scipy==1.14.0
+kneed==0.8.5        # the released package; scripts/select_setting.py adds the weights itself
+
+# exploratory notebooks only
+seaborn==0.11.0
 tqdm==4.66.4
-kneed==0.8.5   # then apply patches/kneed-0.8.5-weighted.patch (weighted Kneedle)
+# and kneed patched with patches/kneed-0.8.5-weighted.patch (the notebooks pass weight_x / weight_y)
