@@ -191,4 +191,4 @@ The sample sheet and per-sample results are not under version control.
 
 ## Author
 
-Zhao Tie ([@ZhaoTie-re](https://github.com/ZhaoTie-re)), Graduate School of Medicine, Kyoto University.
+Zhao Tie ([@ZhaoTie-re](https://github.com/ZhaoTie-re)).
