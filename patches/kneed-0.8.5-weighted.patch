@@ -1,0 +1,34 @@
+Weighted Kneedle: adds weight_x and weight_y to kneed.KneeLocator (kneed 0.8.5).
+The difference curve becomes weight_y * y_normalized - weight_x * x_normalized; with both
+weights at 1.0 (the defaults) it is the original Kneedle. Used by notebooks/02-04.
+Apply in site-packages: patch -p1 -d <site-packages> < kneed-0.8.5-weighted.patch
+
+--- a/kneed/knee_locator.py
++++ b/kneed/knee_locator.py
+@@ -138,6 +138,8 @@
+         interp_method: str = "interp1d",
+         online: bool = False,
+         polynomial_degree: int = 7,
++        weight_x: float = 1.0,
++        weight_y: float = 1.0,
+     ):
+         # Step 0: Raw Input
+         self.x = np.array(x)
+@@ -152,6 +154,8 @@
+         self.all_norm_knees_y = []
+         self.online = online
+         self.polynomial_degree = polynomial_degree
++        self.weight_x = weight_x
++        self.weight_y = weight_y
+ 
+         # I'm implementing Look Before You Leap (LBYL) validation for direction
+         # and curve arguments. This is not preferred in Python. The motivation
+@@ -189,7 +193,7 @@
+             self.y_normalized, self.direction, self.curve
+         )
+         # normalized difference curve
+-        self.y_difference = self.y_normalized - self.x_normalized
++        self.y_difference = self.weight_y * self.y_normalized - self.weight_x * self.x_normalized
+         self.x_difference = self.x_normalized.copy()
+ 
+         # Step 4: Identify local maxima/minima

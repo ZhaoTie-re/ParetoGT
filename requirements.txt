@@ -1,0 +1,9 @@
+# Python packages of the scripts (pipeline) and the notebooks. Tested versions.
+pandas==2.2.2
+numpy==1.26.4
+# notebooks only
+matplotlib==3.8.4
+seaborn==0.11.0
+scipy==1.14.0
+tqdm==4.66.4
+kneed==0.8.5   # then apply patches/kneed-0.8.5-weighted.patch (weighted Kneedle)

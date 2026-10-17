@@ -1,0 +1,26 @@
+# Nextflow run state
+work/
+.nextflow/
+.nextflow.log*
+trace.txt
+report.html
+nextflow_head.log
+nextflow_head.err
+
+# Pipeline outputs: symlinks into work/, about 0.5 TB per run
+results/0*/
+
+# Per-sample data: never under version control
+info/*.csv
+info/*.tsv
+results/selected_settings/
+
+# Run records, kept locally
+results/_run_info/
+
+# Notebook, Python and editor leftovers
+.ipynb_checkpoints/
+__pycache__/
+*.pyc
+.vscode/
+.DS_Store
