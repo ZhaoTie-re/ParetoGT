@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+**Docs**
+- README:
+  - states the purpose of the software, following the slides: depth-dependent genotypes, bias in mixed-depth case–control cohorts, what each threshold removes, and the accuracy-retention trade-off;
+  - shows how it works with the grid-search figure of the slides (`docs/grid_search.png`), in place of a flowchart.
+- `docs/METHODS.md` opens with the purpose.
+- The slides as PDF (`docs/qc.gt_tuning.v6.rev1.pdf`), rendered with metric-compatible substitutes for the slide fonts.
+
 ## 0.2.0 (2026-10-18)
 
 Renamed **ParetoGT** (repository and folder `ParetoGT`, formerly `wgs_gt_qc_calibration`).

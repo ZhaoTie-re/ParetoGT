@@ -7,43 +7,55 @@ ParetoGT chooses genotype-level QC thresholds for WGS calls:
 - genotype quality (GQ);
 - the heterozygote allele-fraction window [LAF, HAF].
 
-It does this by measuring each candidate setting against array genotypes of the same samples. Every combination of thresholds is scored on:
-- genotype concordance;
-- genotype miss rate;
-- false positive and false negative rates.
+It measures every combination of these thresholds against array genotypes of the same samples, and picks the one that best balances genotype accuracy against data loss.
 
-Scores are computed in all samples and per sequencing-depth group. The setting is then chosen on the Pareto front of concordance against miss rate, at the knee point found by a weighted Kneedle.
-
-Version 0.2.0, under development ([CHANGELOG](CHANGELOG.md)).
+Version 0.2.0, under development ([CHANGELOG](CHANGELOG.md)). Slides of the first application: [PDF](docs/qc.gt_tuning.v6.rev1.pdf), [PPTX](docs/qc.gt_tuning.v6.rev1.pptx).
 
 ![Pareto front and knee points](results/figures/pareto_knee.png)
 
+## Purpose
+
+**Depth limits WGS genotypes.** WGS finds more variants than a genotyping array and gives direct read-level evidence for each call, but its genotypes depend on read depth:
+- at low depth, the read counts and allele fractions of the three genotypes spread out and overlap, because of sampling variance;
+- at high depth, they form compact, well-separated groups.
+
+**Mixed depths bias case–control studies.** When depth differs across samples, so does the certainty of their genotypes. The typical case is a case–control cohort with cases sequenced at 30x and controls at 15x. Missingness, calling uncertainty and error patterns then differ systematically between the groups. This adds technical noise and imbalance, and can bias case–control comparisons.
+
+**Each threshold removes a different kind of unreliable call:**
+- **DP:** calls supported by too few reads, which are prone to random sampling error;
+- **GQ:** calls whose genotype is uncertain (GQ 10 / 20 / 30 / 40 ≈ 90% / 99% / 99.9% / 99.99% call accuracy);
+- **allele-fraction window:** heterozygous calls far from the expected 0.5, which more likely reflect allelic imbalance, reference bias or allele-specific mapping than a true heterozygote.
+
+The three therefore have to be tuned together.
+
+**Stricter is not simply better.** Stricter thresholds raise accuracy (higher concordance, fewer false positive and false negative calls), but they also discard more genotypes. No single setting maximizes accuracy and data retention at once.
+
+**What ParetoGT does about it:**
+- **Truth.** Array genotypes of the same individuals are an independent truth, so each setting's accuracy and missingness are measured directly.
+- **Every setting.** All combinations of the thresholds are evaluated, in all samples and in each depth group.
+- **A stated trade-off.** The settings on the Pareto front of concordance against miss rate are kept, and the knee point of the front is chosen. A weight W says how much missingness one accepts for a gain in concordance, so the choice is explicit and reproducible.
+- **Residual differences shown.** The results are reported per depth group, so what the tuning cannot harmonize stays visible. In the first application, tuning brought 15x and 30x samples to the same concordance and error rates; the remaining difference was missingness, which genotype-level thresholds alone cannot remove.
+
 ## How it works
 
-```mermaid
-flowchart LR
-    V["WGS VCFs + array VCF"] --> P["PREPARE_MATRICES<br/>per chromosome"]
-    M[("matrices of an<br/>earlier run")] -.->|--matrixDir| E
-    P --> E["EVALUATE<br/>chromosome × batch of settings"]
-    E --> S["MERGE_AND_SUMMARIZE<br/>genome-wide, per setting"]
-    S --> X["EXPORT_TABLES<br/>one table per group"]
-    X --> K["SELECT_SETTING<br/>Pareto front, weighted Kneedle"]
-    X --> F["FIGURES"]
-    K --> F
-```
+![Each DP/GQ/AF combination yields one confusion matrix](docs/grid_search.png)
 
-1. **Compare.** On the variants and samples shared by both platforms, each setting sets the failing WGS calls to missing:
-   - DP below the threshold;
-   - GQ below the threshold;
-   - a heterozygous call whose allele fraction falls outside [LAF, HAF].
+*The grid search, from the slides. Every point of the parameter space (DP × GQ × [LAF, HAF]) masks the WGS calls:*
+- *DP and GQ below their thresholds set a call to no-call;*
+- *a heterozygous call (GT = 1) with an allele fraction outside [LAF, HAF] is set to no-call;*
+- *the original no-calls stay.*
 
-   The remaining calls are cross-tabulated against the array genotypes.
-2. **Score.** Each confusion matrix gives concordance, miss rate, false positive and false negative rates, and the per-variant and per-sample missingness. The scores are computed in all samples (ALL) and separately at 15x and 30x.
-3. **Choose.** No setting maximizes concordance and minimizes the miss rate at once. ParetoGT therefore:
-   - keeps the settings on the Pareto front;
-   - finds the front's knee point with Kneedle, weighted by W, the weight on concordance relative to the weight on miss rate.
+*The masked calls are cross-tabulated against the array genotypes into one genotype confusion matrix per combination, from which the consistency metrics are computed.*
 
-   A setting that stays the knee across an interval of W is preferred.
+1. **Compare.** On the variants and samples shared by both platforms, each setting masks the failing WGS calls as above.
+2. **Score.** Each confusion matrix gives:
+   - concordance;
+   - miss rate;
+   - false positive and false negative rates;
+   - per-variant and per-sample missingness.
+
+   They are computed in all samples (ALL), and separately at 15x and 30x.
+3. **Choose.** ParetoGT keeps the settings on the Pareto front and finds the front's knee point with a weighted Kneedle (W = weight on concordance : weight on miss rate). A setting that stays the knee across an interval of W is preferred.
 
 Definitions and the selection rule: [docs/METHODS.md](docs/METHODS.md).
 
@@ -137,7 +149,7 @@ SLURM resources are set per step in [nextflow.config](nextflow.config), through 
 
 ![Depth groups](results/figures/depth_groups.png)
 
-The slides of this application: [docs/qc.gt_tuning.v6.rev1.pptx](docs/qc.gt_tuning.v6.rev1.pptx).
+The slides of this application: [PDF](docs/qc.gt_tuning.v6.rev1.pdf), [PPTX](docs/qc.gt_tuning.v6.rev1.pptx).
 
 ## Requirements
 
@@ -165,7 +177,7 @@ Both comparisons were made with [tests/compare_pickles.py](tests/compare_pickles
 | `scripts/` | the steps: VCF extraction, evaluation, merging, metrics, export, selection, figures |
 | `notebooks/` | exploratory notebooks of the first application |
 | `tests/` | synthetic test data, its generator, and the result comparison |
-| `docs/` | methods, and the slides of the first application |
+| `docs/` | methods; the slides of the first application (PPTX and PDF); the grid-search figure |
 | `results/` | the tables, selection and figures of the first application |
 | `patches/` | the weighted Kneedle as a patch to `kneed` (for the notebooks) |
 

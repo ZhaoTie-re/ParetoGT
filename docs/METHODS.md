@@ -1,5 +1,20 @@
 # Methods
 
+## Purpose
+
+WGS genotype calls depend on read depth. When depth differs across samples, as in a case–control cohort with cases at 30x and controls at 15x, missingness and calling errors differ between the groups and can bias their comparison.
+
+Genotype-level QC thresholds remove unreliable calls:
+- read depth (DP);
+- genotype quality (GQ);
+- the heterozygote allele-fraction window.
+
+Stricter thresholds trade data for accuracy. ParetoGT sets the thresholds from the data:
+- it measures every combination against array genotypes of the same individuals;
+- it chooses one on the Pareto front of concordance against miss rate, at a knee point whose weighting is stated.
+
+It reports the result per depth group. The argument in full, with its figures, is in the slides ([PDF](qc.gt_tuning.v6.rev1.pdf)), slides 2–5 and 17–21.
+
 ## 1. Truth set and comparison set
 
 The array genotypes of the same individuals serve as the truth. Before the comparison they pass array QC and a frequency filter against a large reference panel of the same population, so that the remaining array sites are high-confidence anchors.
