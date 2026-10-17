@@ -34,6 +34,7 @@ Renamed **ParetoGT** (repository and folder `ParetoGT`, formerly `wgs_gt_qc_cali
 **Docs**
 - README with the figures of the first application; methods updated.
 - `results/selection/` and `results/figures/` added.
+- The slides no longer name individual samples: two sample IDs in footnotes, on slides 4 and 6, became "two samples".
 
 ## 0.1.0 (2026-10-18)
 

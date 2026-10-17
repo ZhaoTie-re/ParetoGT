@@ -50,7 +50,7 @@ Definitions and the selection rule: [docs/METHODS.md](docs/METHODS.md).
 ## Quick start
 
 ```bash
-git clone <this repository> ParetoGT && cd ParetoGT
+git clone https://github.com/ZhaoTie-re/ParetoGT.git && cd ParetoGT
 
 # 1. Synthetic test (two chromosomes, 84 settings, local; a few minutes)
 nextflow run main.nf -profile test
